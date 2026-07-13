@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { getPrograms, createProgram, deleteProgram, signOut } from '../lib/supabase'
 
@@ -9,7 +9,10 @@ export default function AdminDashboard() {
   const [form, setForm]         = useState({ name:'', date:new Date().toISOString().split('T')[0], access_mode:'private' })
   const [saving, setSaving]     = useState(false)
   const [copied, setCopied]     = useState('')
+  const [qrProgram, setQrProgram] = useState(null)
+  const qrRef = useRef(null)
   const navigate = useNavigate()
+  const base = window.location.origin
 
   useEffect(() => { load() }, [])
 
@@ -32,7 +35,51 @@ export default function AdminDashboard() {
     setCopied(key); setTimeout(() => setCopied(''), 2000)
   }
 
-  const base = window.location.origin
+  // Buka modal QR dan jana QR code
+  async function openQR(program) {
+    setQrProgram(program)
+    // Tunggu modal render dulu
+    setTimeout(() => drawQR(program), 150)
+  }
+
+  async function drawQR(program) {
+    const el = document.getElementById('qr-canvas-wrap')
+    if (!el) return
+    el.innerHTML = ''
+
+    // Load QRCode.js dari CDN jika belum ada
+    if (!window.QRCode) {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script')
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
+        s.onload = res; s.onerror = rej
+        document.head.appendChild(s)
+      })
+    }
+
+    const url = `${base}/jana/${program.id}`
+    new window.QRCode(el, {
+      text: url,
+      width: 260, height: 260,
+      colorDark: '#0f2d5e',
+      colorLight: '#ffffff',
+      correctLevel: window.QRCode.CorrectLevel.H,
+    })
+  }
+
+  function downloadQR(progName) {
+    const el  = document.getElementById('qr-canvas-wrap')
+    const img = el?.querySelector('img')
+    const cvs = el?.querySelector('canvas')
+    const a   = document.createElement('a')
+    const safe = progName.replace(/[^a-zA-Z0-9 ]/g,'').trim().replace(/ +/g,'_')
+    a.download = `QR_${safe}.png`
+    if (img)      { a.href = img.src }
+    else if (cvs) { a.href = cvs.toDataURL('image/png') }
+    else return
+    a.click()
+  }
+
   const activeWithTemplate = programs.filter(p => p.template_url && p.is_active)
 
   return (
@@ -49,7 +96,6 @@ export default function AdminDashboard() {
       </nav>
 
       <div className="page">
-        {/* Welcome */}
         <div style={{ marginBottom:24 }}>
           <h1 style={{ fontSize:22, fontWeight:800, color:'#0f2d5e', marginBottom:4 }}>Dashboard</h1>
           <p style={{ fontSize:14, color:'#94a3b8' }}>Urus program dan jana sijil peserta</p>
@@ -74,9 +120,7 @@ export default function AdminDashboard() {
         {/* Program list */}
         <div className="card">
           <div style={{ display:'flex', alignItems:'center', marginBottom:18 }}>
-            <div>
-              <div className="card-title" style={{ margin:0 }}>Senarai Program</div>
-            </div>
+            <div className="card-title" style={{ margin:0 }}>Senarai Program</div>
             <div style={{ flex:1 }} />
             <button className="btn btn-primary btn-sm" onClick={() => setShowNew(true)}>
               + Program Baharu
@@ -85,7 +129,7 @@ export default function AdminDashboard() {
 
           {loading ? (
             <div style={{ textAlign:'center', padding:'32px 0', color:'#94a3b8' }}>
-              <span className="spinner" style={{ borderTopColor:'#3b82f6', width:24, height:24, margin:'0 auto' }} />
+              <span className="spinner" style={{ borderTopColor:'#3b82f6', width:24, height:24, margin:'0 auto', display:'block' }} />
               <p style={{ marginTop:10, fontSize:13 }}>Memuatkan…</p>
             </div>
           ) : programs.length === 0 ? (
@@ -109,9 +153,7 @@ export default function AdminDashboard() {
                 <tbody>
                   {programs.map(p => (
                     <tr key={p.id}>
-                      <td>
-                        <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
-                      </td>
+                      <td><div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div></td>
                       <td style={{ color:'#64748b', fontSize:13 }}>
                         {new Date(p.date).toLocaleDateString('ms-MY',{day:'numeric',month:'short',year:'numeric'})}
                       </td>
@@ -126,8 +168,16 @@ export default function AdminDashboard() {
                           : <span className="badge badge-gray">Tiada</span>}
                       </td>
                       <td>
-                        <div style={{ display:'flex', gap:6 }}>
+                        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                           <Link to={`/admin/program/${p.id}`} className="btn btn-sm btn-primary">Edit</Link>
+                          {p.template_url && p.is_active && (
+                            <button className="btn btn-sm"
+                              style={{ borderColor:'#bfdbfe', color:'#1d4ed8', background:'#eff6ff' }}
+                              onClick={() => openQR(p)}
+                              title="Papar QR Code">
+                              📱 QR
+                            </button>
+                          )}
                           <button className="btn btn-sm btn-danger"
                             onClick={async()=>{ if(!confirm(`Padam "${p.name}"?`)) return; await deleteProgram(p.id); load() }}>
                             Padam
@@ -163,6 +213,11 @@ export default function AdminDashboard() {
                       onClick={()=>copyLink(link,key)} style={{ flexShrink:0 }}>
                       {copied===key ? '✓ Disalin' : 'Salin'}
                     </button>
+                    <button className="btn btn-sm"
+                      style={{ borderColor:'#bfdbfe', color:'#1d4ed8', background:'#eff6ff', flexShrink:0 }}
+                      onClick={() => openQR(p)}>
+                      📱 QR
+                    </button>
                   </div>
                   <p style={{ fontSize:11, color:'#94a3b8', marginTop:8 }}>
                     {p.access_mode==='public'
@@ -176,7 +231,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* Modal */}
+      {/* Modal Program Baharu */}
       {showNew && (
         <div className="overlay" onClick={e=>e.target===e.currentTarget&&setShowNew(false)}>
           <div className="modal">
@@ -216,6 +271,58 @@ export default function AdminDashboard() {
                 <button type="button" className="btn" onClick={()=>setShowNew(false)}>Batal</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal QR Code */}
+      {qrProgram && (
+        <div className="overlay" onClick={e=>e.target===e.currentTarget&&setQrProgram(null)}>
+          <div className="modal" style={{ maxWidth:380, textAlign:'center' }}>
+
+            {/* Header */}
+            <div style={{ background:'linear-gradient(135deg,#0f2d5e,#2563eb)', borderRadius:12,
+              padding:'20px 16px', marginBottom:20, color:'#fff' }}>
+              <div style={{ fontSize:11, opacity:.7, letterSpacing:'.08em', textTransform:'uppercase', marginBottom:6 }}>
+                {qrProgram.access_mode==='public' ? '🌐 Program Awam' : '🔒 Program Terhad'}
+              </div>
+              <div style={{ fontSize:16, fontWeight:800, lineHeight:1.3 }}>{qrProgram.name}</div>
+              <div style={{ fontSize:12, opacity:.7, marginTop:4 }}>
+                {new Date(qrProgram.date).toLocaleDateString('ms-MY',{day:'numeric',month:'long',year:'numeric'})}
+              </div>
+            </div>
+
+            {/* QR Code */}
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:16 }}>
+              <div style={{ background:'#fff', padding:16, borderRadius:16,
+                border:'2px solid #dbeafe', boxShadow:'0 4px 20px rgba(37,99,235,.15)',
+                display:'inline-block' }}>
+                <div id="qr-canvas-wrap" ref={qrRef} />
+              </div>
+            </div>
+
+            <p style={{ fontSize:13, color:'#64748b', marginBottom:6 }}>
+              Imbas QR code ini untuk jana sijil
+            </p>
+            <p style={{ fontSize:11, color:'#94a3b8', marginBottom:20,
+              background:'#f8fafc', padding:'6px 12px', borderRadius:8,
+              wordBreak:'break-all', fontFamily:'monospace' }}>
+              {base}/jana/{qrProgram.id}
+            </p>
+
+            {/* Butang */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+              <button className="btn btn-primary" onClick={() => downloadQR(qrProgram.name)}>
+                ⬇ Muat Turun QR
+              </button>
+              <button className="btn" onClick={() => setQrProgram(null)}>
+                Tutup
+              </button>
+            </div>
+
+            <p style={{ fontSize:11, color:'#94a3b8', marginTop:14 }}>
+              💡 Proyekkan QR ini semasa bengkel supaya peserta boleh scan terus
+            </p>
           </div>
         </div>
       )}
