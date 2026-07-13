@@ -1,273 +1,254 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import {
-  getPublicProgram,
-  checkRecipient, markGenerated,
-  generatePublicCert,
-} from '../lib/supabase'
-import { generateCertificate, downloadBlob, printDataUrl } from '../lib/certCanvas'
+import { getPublicProgram, checkRecipient, markGenerated, generatePublicCert } from '../lib/supabase'
+import { generateCertificatePDF, generateCertificatePreview, downloadBlob, openPdfInTab } from '../lib/certCanvas'
 
-// Format IC automatik: 900215-01-1234
 function formatIc(raw) {
-  const digits = raw.replace(/[^0-9]/g, '')
-  if (digits.length <= 6)  return digits
-  if (digits.length <= 8)  return digits.slice(0,6) + '-' + digits.slice(6)
-  return digits.slice(0,6) + '-' + digits.slice(6,8) + '-' + digits.slice(8,12)
+  const d = raw.replace(/[^0-9]/g,'')
+  if (d.length<=6) return d
+  if (d.length<=8) return d.slice(0,6)+'-'+d.slice(6)
+  return d.slice(0,6)+'-'+d.slice(6,8)+'-'+d.slice(8,12)
 }
-
-// Sahkan format IC
-function validIc(ic) {
-  return /^\d{6}-\d{2}-\d{4}$/.test(ic)
-}
+function validIc(ic) { return /^\d{6}-\d{2}-\d{4}$/.test(ic) }
 
 export default function UserPortal() {
   const { programId } = useParams()
-
-  const [prog, setProg]           = useState(null)
-  const [loading, setLoading]     = useState(true)
-  const [notFound, setNotFound]   = useState(false)
-
-  const [name, setName]           = useState('')
-  const [ic, setIc]               = useState('')
-  const [status, setStatus]       = useState(null) // null|'checking'|'generating'|'done'|'err'
-  const [errMsg, setErrMsg]       = useState('')
-
-  const [certBlob, setCertBlob]       = useState(null)
-  const [certDataUrl, setCertDataUrl] = useState(null)
-  const [certName, setCertName]       = useState('')
+  const [prog, setProg]         = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [notFound, setNotFound] = useState(false)
+  const [name, setName]         = useState('')
+  const [ic, setIc]             = useState('')
+  const [status, setStatus]     = useState(null)
+  const [errMsg, setErrMsg]     = useState('')
+  const [pdfBlob, setPdfBlob]   = useState(null)
+  const [previewUrl, setPreviewUrl] = useState(null)
+  const [certName, setCertName] = useState('')
+  const [pdfSize, setPdfSize]   = useState(0)
 
   useEffect(() => {
     if (!programId) { setNotFound(true); setLoading(false); return }
     getPublicProgram(programId).then(({ data, error }) => {
-      if (error || !data) { setNotFound(true) }
-      else { setProg(data) }
+      if (error || !data) setNotFound(true)
+      else setProg(data)
       setLoading(false)
     })
   }, [programId])
 
-  function handleIcInput(e) {
-    setIc(formatIc(e.target.value))
-  }
+  const certOpts = (finalName, finalIc) => ({
+    templateUrl: prog.template_url,
+    name: finalName, ic: finalIc,
+    nameX: prog.name_x??50, nameY: prog.name_y??55,
+    nameSize: prog.name_size??36, nameColor: prog.name_color??'#1e3a5f',
+    nameFont: prog.name_font??'Georgia',
+    showIc: prog.show_ic??true, icSize: prog.ic_size??20,
+    icColor: prog.ic_color??'#1e3a5f', previewWidth: 600,
+  })
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setErrMsg(''); setCertBlob(null); setCertDataUrl(null)
-
-    // Validate IC format
-    if (!validIc(ic)) {
-      setErrMsg('Format No. IC tidak betul. Contoh: 900215-01-1234')
-      return
-    }
-
+    setErrMsg(''); setPdfBlob(null); setPreviewUrl(null)
+    if (!validIc(ic)) { setErrMsg('Format IC tidak betul. Contoh: 900215-01-1234'); return }
     setStatus('checking')
-
     let finalName = name.trim()
 
     if (prog.access_mode === 'private') {
-      // Private: semak IC dalam senarai peserta
       const { data, error } = await checkRecipient(programId, ic)
       if (error || !data?.length || !data[0].found) {
-        setStatus('err')
-        setErrMsg('No. IC anda tidak dalam senarai peserta program ini. Sila hubungi penganjur.')
-        return
+        setStatus('err'); setErrMsg('No. IC anda tidak dalam senarai peserta. Hubungi penganjur.'); return
       }
-      // Guna nama dari database
       finalName = data[0].full_name
       await markGenerated(programId, ic)
-
     } else {
-      // Public: simpan peserta secara automatik
       const { data, error } = await generatePublicCert(programId, finalName, ic)
       if (error || !data?.length || !data[0].success) {
-        setStatus('err')
-        setErrMsg((data?.[0]?.message) || 'Gagal memproses. Cuba semula.')
-        return
+        setStatus('err'); setErrMsg(data?.[0]?.message || 'Gagal memproses. Cuba semula.'); return
       }
-      // Guna nama yang disimpan (kalau IC dah pernah digunakan, guna nama asal)
       finalName = data[0].full_name
     }
 
     setStatus('generating')
     try {
-      const blob = await generateCertificate({
-        templateUrl:  prog.template_url,
-        name:         finalName,
-        ic,
-        nameX:        prog.name_x     ?? 50,
-        nameY:        prog.name_y     ?? 55,
-        nameSize:     prog.name_size  ?? 36,
-        nameColor:    prog.name_color ?? '#1e3a5f',
-        nameFont:     prog.name_font  ?? 'Georgia',
-        showIc:       prog.show_ic    ?? true,
-        icSize:       prog.ic_size    ?? 20,
-        icColor:      prog.ic_color   ?? '#1e3a5f',
-        previewWidth: 600,
-        output:       'blob',
-      })
-      const url = URL.createObjectURL(blob)
-      setCertBlob(blob)
-      setCertDataUrl(url)
+      const opts = certOpts(finalName, ic)
+
+      // Jana pratonton dan PDF serentak
+      const [blob, preview] = await Promise.all([
+        generateCertificatePDF(opts),
+        generateCertificatePreview(opts),
+      ])
+
+      setPdfBlob(blob)
+      setPdfSize(Math.round(blob.size / 1024))
+      setPreviewUrl(preview)
       setCertName(finalName)
       setStatus('done')
     } catch(e) {
-      setStatus('err')
-      setErrMsg('Gagal jana sijil: ' + e.message)
+      setStatus('err'); setErrMsg('Gagal jana sijil: ' + e.message)
     }
   }
 
   function handleDownload() {
     const safe = certName.replace(/[^a-zA-Z0-9 ]/g,'').trim().replace(/ +/g,'_')
-    downloadBlob(certBlob, `Sijil_${safe}.png`)
+    downloadBlob(pdfBlob, `Sijil_${safe}.pdf`)
   }
 
   function reset() {
     setName(''); setIc(''); setStatus(null); setErrMsg('')
-    setCertBlob(null); setCertDataUrl(null); setCertName('')
+    setPdfBlob(null); setPreviewUrl(null); setCertName(''); setPdfSize(0)
   }
 
-  // ── Loading ──
   if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--gray-400)', fontSize:14 }}>
-      Memuatkan…
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+      height:'100vh', gap:14 }}>
+      <span className="spinner" style={{ borderTopColor:'#3b82f6', width:36, height:36, borderWidth:3 }} />
+      <p style={{ fontSize:14, color:'#94a3b8' }}>Memuatkan…</p>
     </div>
   )
 
-  // ── Program tidak dijumpai ──
   if (notFound) return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-      height:'100vh', gap:12, color:'var(--gray-600)', textAlign:'center', padding:24 }}>
-      <div style={{ fontSize:48 }}>🔗</div>
-      <div style={{ fontSize:18, fontWeight:600 }}>Pautan Tidak Sah</div>
-      <div style={{ fontSize:14 }}>Program tidak dijumpai atau pautan telah tamat tempoh.</div>
+      height:'100vh', gap:14, textAlign:'center', padding:24 }}>
+      <div style={{ fontSize:60 }}>🔗</div>
+      <h2 style={{ fontSize:20, fontWeight:700, color:'#0f2d5e' }}>Pautan Tidak Sah</h2>
+      <p style={{ fontSize:14, color:'#64748b', maxWidth:300 }}>
+        Program tidak dijumpai atau pautan telah tamat tempoh.
+      </p>
     </div>
   )
 
-  const isPublic  = prog.access_mode === 'public'
-  const hasTemplate = !!prog.template_url
+  const isPublic = prog.access_mode === 'public'
+  const busy     = status === 'checking' || status === 'generating'
 
   return (
-    <div style={{ minHeight:'100vh', background:'linear-gradient(160deg,#f0f6ff 0%,#fff 60%)', paddingBottom:40 }}>
-      {/* Header */}
-      <div style={{ background:'var(--blue)', padding:'14px 20px', display:'flex', alignItems:'center', gap:10 }}>
-        <span style={{ fontSize:22 }}>🎓</span>
-        <div>
-          <div style={{ color:'#fff', fontWeight:700, fontSize:15 }}>SijilOnline</div>
-          <div style={{ color:'rgba(255,255,255,.6)', fontSize:12 }}>
-            {isPublic ? '🌐 Akses Awam' : '🔒 Akses Terhad'}
+    <div style={{ minHeight:'100vh', background:'#f0f6ff' }}>
+
+      {/* Hero */}
+      <div className="portal-hero">
+        <div className="portal-hero-content">
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6,
+            background:'rgba(255,255,255,.15)', borderRadius:20, padding:'5px 14px',
+            fontSize:12, fontWeight:600, marginBottom:16, border:'1px solid rgba(255,255,255,.2)' }}>
+            {isPublic ? '🌐 Program Awam' : '🔒 Program Terhad'}
           </div>
+          <h1 style={{ fontSize:'clamp(18px,4vw,26px)', fontWeight:800, margin:'0 0 8px', lineHeight:1.3 }}>
+            {prog.name}
+          </h1>
+          <p style={{ fontSize:14, opacity:.8 }}>
+            {new Date(prog.date).toLocaleDateString('ms-MY',{day:'numeric',month:'long',year:'numeric'})}
+          </p>
         </div>
       </div>
 
-      <div style={{ maxWidth:500, margin:'0 auto', padding:'28px 16px' }}>
+      {/* Content */}
+      <div style={{ maxWidth:500, margin:'0 auto', padding:'0 16px 60px' }}>
 
-        {/* Maklumat program */}
-        <div style={{ textAlign:'center', marginBottom:28 }}>
-          <div style={{ fontSize:11, color:'var(--gray-400)', textTransform:'uppercase',
-            letterSpacing:'.08em', marginBottom:6 }}>
-            {isPublic ? '🌐 Program Awam' : '🔒 Program Terhad'}
-          </div>
-          <div style={{ fontSize:22, fontWeight:700, color:'var(--blue)', marginBottom:4 }}>{prog.name}</div>
-          <div style={{ fontSize:13, color:'var(--gray-400)' }}>
-            {new Date(prog.date).toLocaleDateString('ms-MY', { day:'numeric', month:'long', year:'numeric' })}
-          </div>
-        </div>
+        {!pdfBlob ? (
+          <div className="portal-card">
+            {!prog.template_url ? (
+              <div className="alert alert-warn">
+                ⚠️ Template sijil belum disediakan. Sila hubungi penganjur.
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                <h2 style={{ fontSize:17, fontWeight:700, color:'#0f2d5e', marginBottom:20 }}>
+                  {isPublic ? '✏️ Masukkan Maklumat Anda' : '🔐 Sahkan Kehadiran Anda'}
+                </h2>
 
-        {/* Amaran tiada template */}
-        {!hasTemplate && (
-          <div className="alert alert-err" style={{ textAlign:'center' }}>
-            Template sijil belum disediakan. Sila hubungi penganjur program.
-          </div>
-        )}
-
-        {/* Form input */}
-        {!certDataUrl && hasTemplate && (
-          <div className="card">
-            <form onSubmit={handleSubmit}>
-
-              {/* Nama — hanya untuk public */}
-              {isPublic && (
-                <div className="field">
-                  <label>Nama Penuh</label>
-                  <input type="text" value={name} required
-                    onChange={e => setName(e.target.value)}
-                    placeholder="Ahmad Faris bin Ramli"
-                    autoFocus />
-                </div>
-              )}
-
-              <div className="field">
-                <label>No. Kad Pengenalan</label>
-                <input type="text" value={ic} required
-                  onChange={handleIcInput}
-                  placeholder="900215-01-1234"
-                  maxLength={14}
-                  style={{ fontSize:17, letterSpacing:'.05em', textAlign:'center' }}
-                  autoFocus={!isPublic} />
-                {ic && !validIc(ic) && (
-                  <div style={{ fontSize:12, color:'var(--red)', marginTop:4 }}>
-                    Format: 6 digit - 2 digit - 4 digit (contoh: 900215-01-1234)
+                {isPublic && (
+                  <div className="field">
+                    <label>Nama Penuh</label>
+                    <input type="text" value={name} required autoFocus
+                      onChange={e=>setName(e.target.value)}
+                      placeholder="Nama penuh seperti dalam IC" />
                   </div>
                 )}
-              </div>
 
-              {errMsg && <div className="alert alert-err">{errMsg}</div>}
-
-              {(status === 'checking' || status === 'generating') && (
-                <div className="alert alert-info" style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <span className="spinner" style={{ borderTopColor:'var(--blue)', width:16, height:16 }} />
-                  {status === 'checking' ? 'Mengesahkan maklumat…' : 'Menjana sijil…'}
+                <div className="field">
+                  <label>No. Kad Pengenalan</label>
+                  <input type="text" value={ic} required
+                    onChange={e=>setIc(formatIc(e.target.value))}
+                    placeholder="000000-00-0000" maxLength={14}
+                    autoFocus={!isPublic}
+                    style={{ fontSize:20, letterSpacing:'.1em', textAlign:'center',
+                      fontFamily:"'SF Mono','Fira Mono',monospace", fontWeight:600 }} />
+                  <div style={{ marginTop:6, fontSize:12, height:18 }}>
+                    {ic.length>0 && !validIc(ic) && <span style={{ color:'#ef4444' }}>Format: 6 digit - 2 digit - 4 digit</span>}
+                    {validIc(ic) && <span style={{ color:'#10b981' }}>✓ Format betul</span>}
+                  </div>
                 </div>
-              )}
 
-              <button type="submit" className="btn btn-accent btn-lg"
-                disabled={status==='checking' || status==='generating' || !validIc(ic) || (isPublic && !name.trim())}>
-                📜 Jana Sijil Saya
-              </button>
+                {errMsg && (
+                  <div className="alert alert-err">
+                    <span>⚠️</span>
+                    <span>{errMsg}</span>
+                  </div>
+                )}
 
-              {isPublic && (
-                <p style={{ fontSize:11, color:'var(--gray-400)', textAlign:'center', marginTop:10 }}>
-                  Maklumat anda akan disimpan sebagai rekod penyertaan program ini.
+                {busy && (
+                  <div className="alert alert-info">
+                    <span className="spinner" style={{ borderTopColor:'#2563eb', width:16, height:16 }} />
+                    <span>{status==='checking' ? 'Mengesahkan maklumat…' : 'Menjana sijil PDF…'}</span>
+                  </div>
+                )}
+
+                <button type="submit" className="btn btn-primary btn-lg" style={{ marginTop:8 }}
+                  disabled={busy || !validIc(ic) || (isPublic && !name.trim())}>
+                  {busy
+                    ? <><span className="spinner"/>Sila tunggu…</>
+                    : '📄 Jana Sijil PDF'}
+                </button>
+
+                <p style={{ fontSize:11, color:'#94a3b8', textAlign:'center', marginTop:12 }}>
+                  {isPublic
+                    ? '📝 Maklumat anda akan disimpan sebagai rekod penyertaan.'
+                    : '🔒 Hanya peserta berdaftar sahaja boleh jana sijil.'}
                 </p>
-              )}
-              {!isPublic && (
-                <p style={{ fontSize:11, color:'var(--gray-400)', textAlign:'center', marginTop:10 }}>
-                  Hanya peserta berdaftar yang boleh jana sijil ini.
-                </p>
-              )}
-            </form>
+              </form>
+            )}
           </div>
-        )}
-
-        {/* Pratonton sijil + butang muat turun */}
-        {certDataUrl && (
-          <div>
-            <div className="alert alert-ok" style={{ textAlign:'center', fontWeight:500 }}>
-              ✓ Sijil berjaya dijana untuk <strong>{certName}</strong>
+        ) : (
+          /* Sijil berjaya */
+          <div style={{ marginTop:20 }}>
+            <div className="alert alert-ok" style={{ justifyContent:'center', fontWeight:600, marginBottom:20 }}>
+              🎉 Tahniah! Sijil anda berjaya dijana.
             </div>
 
-            <div style={{ borderRadius:12, overflow:'hidden',
-              boxShadow:'0 4px 24px rgba(0,0,0,.12)', marginBottom:16 }}>
-              <img src={certDataUrl} alt="Sijil" style={{ width:'100%', display:'block' }} />
+            {/* Pratonton sijil */}
+            <div className="cert-preview-wrap" style={{ marginBottom:20 }}>
+              <img src={previewUrl} alt="Pratonton Sijil"
+                style={{ width:'100%', display:'block' }} />
             </div>
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-              <button className="btn btn-primary" style={{ justifyContent:'center', padding:11 }}
+            {/* Info saiz PDF */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+              fontSize:12, color:'#64748b', marginBottom:16 }}>
+              <span>📄 Fail PDF</span>
+              <span style={{ background:'#dbeafe', color:'#1d4ed8', padding:'2px 8px',
+                borderRadius:20, fontWeight:600, fontSize:11 }}>
+                {pdfSize} KB {pdfSize <= 200 ? '✓' : '⚠️'}
+              </span>
+            </div>
+
+            {/* Butang */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+              <button className="btn btn-primary btn-lg" style={{ fontSize:14 }}
                 onClick={handleDownload}>
-                ⬇ Muat Turun PNG
+                ⬇ Muat Turun PDF
               </button>
-              <button className="btn" style={{ justifyContent:'center', padding:11 }}
-                onClick={() => printDataUrl(certDataUrl, `Sijil — ${certName}`)}>
-                🖨 Cetak
+              <button className="btn btn-lg" style={{ fontSize:14, borderColor:'#bfdbfe', color:'#1d4ed8', background:'#eff6ff' }}
+                onClick={() => openPdfInTab(pdfBlob)}>
+                👁 Buka PDF
               </button>
             </div>
-            <button className="btn" style={{ width:'100%', justifyContent:'center' }} onClick={reset}>
-              Jana sijil lain
+
+            <button className="btn" style={{ width:'100%', justifyContent:'center', color:'#64748b' }}
+              onClick={reset}>
+              ← Jana Sijil Lain
             </button>
           </div>
         )}
 
-        <p style={{ textAlign:'center', fontSize:12, color:'var(--gray-400)', marginTop:20 }}>
-          Masalah? Hubungi penganjur program.
+        <p style={{ textAlign:'center', fontSize:12, color:'#94a3b8', marginTop:28 }}>
+          Ada masalah? Hubungi penganjur program ini.
         </p>
       </div>
     </div>
