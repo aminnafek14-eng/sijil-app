@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'import { useParams, Link } from 'react-router-dom'
 import {
   supabase, updateProgram, uploadTemplate,
   getRecipients, addRecipient, deleteRecipient, bulkAddRecipients,
@@ -12,7 +11,8 @@ const COLORS = ['#1e3a5f','#7c2d12','#14532d','#1e1b4b','#000000','#ffffff','#d9
 
 export default function ProgramEditor() {
   const { id } = useParams()
-  const canvasRef = useRef(null)
+  const canvasRef      = useRef(null)
+  const previewWidthRef = useRef(600) // lebar pratonton sebenar dalam px
 
   const [program, setProgram]   = useState(null)
   const [cfg, setCfg]           = useState({
@@ -213,6 +213,7 @@ export default function ProgramEditor() {
                 ref={canvasRef}
                 onClick={e => {
                   const rect = e.currentTarget.getBoundingClientRect()
+                  previewWidthRef.current = rect.width  // simpan lebar sebenar
                   const x = Math.round(((e.clientX - rect.left) / rect.width)  * 100)
                   const y = Math.round(((e.clientY - rect.top)  / rect.height) * 100)
                   setCfg(c => ({ ...c, name_x: x, name_y: y }))
@@ -240,7 +241,7 @@ export default function ProgramEditor() {
                   </div>
                 )}
 
-                {/* Overlay nama — kedudukan ikut cfg */}
+                {/* Overlay nama — saiz font sama dengan output canvas */}
                 {program.template_url && (
                   <div style={{
                     position: 'absolute',
@@ -249,14 +250,13 @@ export default function ProgramEditor() {
                     transform: 'translate(-50%, -50%)',
                     textAlign: 'center',
                     pointerEvents: 'none',
-                    lineHeight: 1.3,
+                    lineHeight: 1.5,
                   }}>
                     <div style={{
                       fontFamily: `"${cfg.name_font}", Georgia, serif`,
-                      fontSize: `${cfg.name_size * 0.55}px`,
+                      fontSize: `${cfg.name_size}px`,
                       color: cfg.name_color,
                       fontWeight: 'bold',
-                      textShadow: '0 1px 3px rgba(0,0,0,0.15)',
                       whiteSpace: 'nowrap',
                     }}>
                       {previewName.toUpperCase()}
@@ -264,11 +264,10 @@ export default function ProgramEditor() {
                     {cfg.show_ic && (
                       <div style={{
                         fontFamily: `"${cfg.name_font}", Georgia, serif`,
-                        fontSize: `${cfg.ic_size * 0.55}px`,
+                        fontSize: `${cfg.ic_size}px`,
                         color: cfg.ic_color,
-                        textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                        fontWeight: 'bold',
                         whiteSpace: 'nowrap',
-                        marginTop: 2,
                       }}>
                         No. IC: 900215-01-1234
                       </div>
