@@ -15,16 +15,15 @@ export const signOut = () => supabase.auth.signOut()
 export const getPrograms = () =>
   supabase.from('programs').select('*').order('created_at', { ascending: false })
 
+export const getPublicProgram = (id) =>
+  supabase.from('programs').select('*').eq('id', id).eq('is_active', true).single()
+
 export const createProgram = (data) =>
   supabase.from('programs').insert(data).select().single()
 
 export const updateProgram = async (id, data) => {
   const { data: result, error } = await supabase
-    .from('programs')
-    .update(data)
-    .eq('id', id)
-    .select()
-    .single()
+    .from('programs').update(data).eq('id', id).select().single()
   if (error) throw new Error('Gagal simpan: ' + error.message)
   return { data: result }
 }
@@ -36,28 +35,15 @@ export const deleteProgram = (id) =>
 export const uploadTemplate = async (file, programId) => {
   const ext  = file.name.split('.').pop().toLowerCase()
   const path = programId + '/template.' + ext
-
-  // Padam lama dulu
   await supabase.storage.from('sijil-templates').remove([path])
-
   const { error } = await supabase.storage
     .from('sijil-templates')
-    .upload(path, file, {
-      upsert: true,
-      cacheControl: '0',
-      contentType: file.type,
-    })
-
+    .upload(path, file, { upsert: true, cacheControl: '0', contentType: file.type })
   if (error) {
-    if (error.message.includes('not found') || error.message.includes('bucket')) {
-      throw new Error('Bucket "sijil-templates" belum dibuat.\n\nPergi ke Supabase → Storage → New bucket → Nama: sijil-templates → Public: ON → Create')
-    }
-    if (error.statusCode === '403' || error.message.includes('policy') || error.message.includes('permission')) {
-      throw new Error('Tiada kebenaran upload. Pastikan anda log masuk sebagai admin dan bucket policy dah ditetapkan.')
-    }
+    if (error.message.includes('not found') || error.message.includes('bucket'))
+      throw new Error('Bucket "sijil-templates" belum dibuat. Pergi ke Supabase → Storage → New bucket → sijil-templates → Public ON')
     throw new Error('Upload gagal: ' + error.message)
   }
-
   const { data } = supabase.storage.from('sijil-templates').getPublicUrl(path)
   return data.publicUrl + '?v=' + Date.now()
 }
@@ -88,9 +74,17 @@ export const deleteRecipient = (id) =>
 export const bulkAddRecipients = (rows) =>
   supabase.from('recipients').insert(rows).select()
 
-// SEMAK IC
+// SEMAK IC — private
 export const checkRecipient = (programId, ic) =>
   supabase.rpc('check_recipient', { p_program_id: programId, p_ic: ic })
 
 export const markGenerated = (programId, ic) =>
   supabase.rpc('mark_cert_generated', { p_program_id: programId, p_ic: ic })
+
+// JANA SIJIL — public (auto simpan peserta)
+export const generatePublicCert = (programId, fullName, ic) =>
+  supabase.rpc('generate_public_cert', {
+    p_program_id: programId,
+    p_full_name:  fullName,
+    p_ic:         ic,
+  })
