@@ -76,9 +76,13 @@ export default function ProgramEditor() {
     setUploading(true)
     try {
       const url = await uploadTemplate(file, id)
+      // Kemaskini URL dalam DB dan reload program
       const { data } = await updateProgram(id, { template_url: url })
-      setProgram(data)
-    } catch(e) { alert('Gagal muat naik: ' + e.message) }
+      setProgram(prev => ({ ...prev, template_url: url }))
+      alert('Template berjaya dimuat naik!')
+    } catch(e) {
+      alert(e.message)
+    }
     setUploading(false)
   }
 
@@ -88,20 +92,17 @@ export default function ProgramEditor() {
     if (file) handleFileUpload(file)
   }
 
-  // Klik canvas untuk letak kedudukan nama
-  function handleCanvasClick(e) {
-    const rect = canvasRef.current.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width)  * 100
-    const y = ((e.clientY - rect.top)  / rect.height) * 100
-    setCfg(c => ({ ...c, name_x: Math.round(x), name_y: Math.round(y) }))
-  }
-
-  // Simpan tetapan
+  // Simpan tetapan kedudukan & gaya
   async function handleSave() {
     setSaving(true)
-    await updateProgram(id, cfg)
-    setSaving(false); setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    try {
+      await updateProgram(id, cfg)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch(e) {
+      alert('Gagal simpan: ' + e.message)
+    }
+    setSaving(false)
   }
 
   // ── TICK guru ────────────────────────────────────────────────
