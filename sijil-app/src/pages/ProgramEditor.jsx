@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   supabase, updateProgram, uploadTemplate,
@@ -70,8 +70,8 @@ export default function ProgramEditor() {
     setTeachers(data || [])
   }
 
-  // Redraw canvas bila cfg berubah
-  const redraw = useCallback(() => {
+  // Redraw canvas setiap kali cfg, nama pratonton, atau template berubah
+  useEffect(() => {
     if (!canvasRef.current || !program) return
     drawPreview(canvasRef.current, {
       templateUrl: program.template_url ?? null,
@@ -80,8 +80,6 @@ export default function ProgramEditor() {
       ...cfg,
     })
   }, [program, cfg, previewName])
-
-  useEffect(() => { redraw() }, [redraw])
 
   // Upload template
   async function handleFileUpload(file) {
@@ -255,6 +253,7 @@ export default function ProgramEditor() {
                   <div className="slider-group">
                     <span style={{fontSize:12,color:'var(--gray-400)'}}>Kiri</span>
                     <input type="range" min="5" max="95" value={cfg.name_x}
+                      onInput={e=>setCfg(c=>({...c,name_x:+e.target.value}))}
                       onChange={e=>setCfg(c=>({...c,name_x:+e.target.value}))} />
                     <span style={{fontSize:12,color:'var(--gray-400)'}}>Kanan</span>
                   </div>
@@ -264,6 +263,7 @@ export default function ProgramEditor() {
                   <div className="slider-group">
                     <span style={{fontSize:12,color:'var(--gray-400)'}}>Atas</span>
                     <input type="range" min="5" max="95" value={cfg.name_y}
+                      onInput={e=>setCfg(c=>({...c,name_y:+e.target.value}))}
                       onChange={e=>setCfg(c=>({...c,name_y:+e.target.value}))} />
                     <span style={{fontSize:12,color:'var(--gray-400)'}}>Bawah</span>
                   </div>
@@ -271,6 +271,7 @@ export default function ProgramEditor() {
                 <div className="field">
                   <label>Saiz Nama: {cfg.name_size}px</label>
                   <input type="range" min="12" max="80" value={cfg.name_size}
+                    onInput={e=>setCfg(c=>({...c,name_size:+e.target.value}))}
                     onChange={e=>setCfg(c=>({...c,name_size:+e.target.value}))} />
                 </div>
                 <div className="field">
@@ -309,6 +310,7 @@ export default function ProgramEditor() {
                   <div className="field">
                     <label>Saiz IC: {cfg.ic_size}px</label>
                     <input type="range" min="8" max="40" value={cfg.ic_size}
+                      onInput={e=>setCfg(c=>({...c,ic_size:+e.target.value}))}
                       onChange={e=>setCfg(c=>({...c,ic_size:+e.target.value}))} />
                   </div>
                   <div className="field">
