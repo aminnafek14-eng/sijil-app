@@ -91,7 +91,7 @@ export default function AdminDashboard() {
           ) : programs.length === 0 ? (
             <div style={{ textAlign:'center', padding:'40px 0', color:'#94a3b8' }}>
               <div style={{ fontSize:40, marginBottom:10 }}>📋</div>
-              <p style={{ fontSize:15, fontWeight:600, color:'#475569', marginBottom:6 }}>Tiada program lagi</div>
+              <p style={{ fontSize:15, fontWeight:600, color:'#475569', marginBottom:6 }}>Tiada program lagi</p>
               <p style={{ fontSize:13 }}>Klik "Program Baharu" untuk mula</p>
             </div>
           ) : (
