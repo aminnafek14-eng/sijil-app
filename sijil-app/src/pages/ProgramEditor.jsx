@@ -106,6 +106,19 @@ export default function ProgramEditor() {
     setSaving(false)
   }
 
+  // Toggle public/private
+  async function toggleAccessMode() {
+    const newMode = program.access_mode === 'public' ? 'private' : 'public'
+    const confirm_msg = newMode === 'public'
+      ? 'Tukar ke AWAM? Sesiapa dengan pautan boleh jana sijil.'
+      : 'Tukar ke TERHAD? Hanya peserta berdaftar sahaja boleh jana sijil.'
+    if (!confirm(confirm_msg)) return
+    try {
+      const { data } = await updateProgram(id, { access_mode: newMode })
+      setProgram(prev => ({ ...prev, access_mode: newMode }))
+    } catch(e) { alert(e.message) }
+  }
+
   // ── TICK guru ────────────────────────────────────────────────
   function toggleTick(teacherId) {
     setTicked(prev => {
@@ -178,6 +191,12 @@ export default function ProgramEditor() {
           ← Kembali
         </Link>
         <span className="nav-title" style={{ fontSize:14 }}>{program.name}</span>
+        <button className="btn btn-sm"
+          onClick={toggleAccessMode}
+          style={{ background: program.access_mode==='public' ? '#16a34a' : '#64748b',
+            color:'#fff', borderColor:'transparent', marginRight:4 }}>
+          {program.access_mode === 'public' ? '🌐 Awam' : '🔒 Terhad'}
+        </button>
         <button className="btn btn-sm" style={{ background:'#fff', color:'var(--blue)' }}
           onClick={handleSave} disabled={saving}>
           {saving ? <><span className="spinner" style={{ borderTopColor:'var(--blue)' }} /> Menyimpan…</>
