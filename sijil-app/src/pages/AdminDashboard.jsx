@@ -6,8 +6,11 @@ export default function AdminDashboard() {
   const [programs, setPrograms] = useState([])
   const [loading, setLoading]   = useState(true)
   const [showNew, setShowNew]   = useState(false)
-  const [form, setForm]         = useState({ name:'', date: new Date().toISOString().split('T')[0] })
-  const [saving, setSaving]     = useState(false)
+  const [form, setForm]         = useState({
+    name: '', date: new Date().toISOString().split('T')[0], access_mode: 'private'
+  })
+  const [saving, setSaving]   = useState(false)
+  const [copied, setCopied]   = useState('')
   const navigate = useNavigate()
 
   useEffect(() => { load() }, [])
@@ -22,48 +25,56 @@ export default function AdminDashboard() {
   async function handleCreate(e) {
     e.preventDefault()
     setSaving(true)
-    const { data, error } = await createProgram({ name: form.name, date: form.date })
-    if (!error && data) {
-      navigate(`/admin/program/${data.id}`)
-    }
+    const { data, error } = await createProgram({
+      name: form.name, date: form.date, access_mode: form.access_mode
+    })
+    if (!error && data) navigate(`/admin/program/${data.id}`)
     setSaving(false)
   }
 
   async function handleDelete(id, name) {
-    if (!confirm(`Padam program "${name}"? Semua peserta turut dipadam.`)) return
-    await deleteProgram(id)
-    load()
+    if (!confirm(`Padam program "${name}"?`)) return
+    await deleteProgram(id); load()
   }
 
-  const totalCert = programs.reduce((s) => s, 0) // boleh kira dari recipients nanti
+  function copyLink(url, key) {
+    navigator.clipboard.writeText(url)
+    setCopied(key)
+    setTimeout(() => setCopied(''), 2000)
+  }
+
+  const base = window.location.origin
 
   return (
     <>
       <nav className="nav">
         <span>🎓</span>
         <span className="nav-title">SijilOnline — Dashboard</span>
-        <button className="btn btn-sm" style={{ color:'#fff', borderColor:'rgba(255,255,255,.3)', background:'transparent' }}
+        <button className="btn btn-sm"
+          style={{ color:'#fff', borderColor:'rgba(255,255,255,.3)', background:'transparent' }}
           onClick={async () => { await signOut(); navigate('/admin') }}>
           Log Keluar
         </button>
       </nav>
 
       <div className="page">
+        {/* Stat */}
         <div className="stats">
           <div className="stat">
             <div className="stat-val">{programs.length}</div>
             <div className="stat-lbl">Program</div>
           </div>
           <div className="stat">
-            <div className="stat-val">{programs.filter(p=>p.is_active).length}</div>
-            <div className="stat-lbl">Aktif</div>
+            <div className="stat-val">{programs.filter(p=>p.access_mode==='public').length}</div>
+            <div className="stat-lbl">🌐 Awam</div>
           </div>
           <div className="stat">
-            <div className="stat-val">{programs.filter(p=>p.template_url).length}</div>
-            <div className="stat-lbl">Ada Template</div>
+            <div className="stat-val">{programs.filter(p=>p.access_mode==='private').length}</div>
+            <div className="stat-lbl">🔒 Terhad</div>
           </div>
         </div>
 
+        {/* Senarai program */}
         <div className="card">
           <div style={{ display:'flex', alignItems:'center', marginBottom:16 }}>
             <span className="card-title" style={{ margin:0, flex:1 }}>Senarai Program</span>
@@ -82,20 +93,19 @@ export default function AdminDashboard() {
           ) : (
             <table className="tbl">
               <thead>
-                <tr>
-                  <th>Nama Program</th>
-                  <th>Tarikh</th>
-                  <th>Template</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
+                <tr><th>Nama Program</th><th>Tarikh</th><th>Mod</th><th>Template</th><th></th></tr>
               </thead>
               <tbody>
                 {programs.map(p => (
                   <tr key={p.id}>
                     <td style={{ fontWeight:500 }}>{p.name}</td>
-                    <td style={{ color:'var(--gray-600)' }}>
-                      {new Date(p.date).toLocaleDateString('ms-MY', { day:'numeric', month:'long', year:'numeric' })}
+                    <td style={{ color:'var(--gray-600)', fontSize:13 }}>
+                      {new Date(p.date).toLocaleDateString('ms-MY',{day:'numeric',month:'short',year:'numeric'})}
+                    </td>
+                    <td>
+                      <span className={`badge ${p.access_mode==='public' ? 'badge-blue' : 'badge-gray'}`}>
+                        {p.access_mode === 'public' ? '🌐 Awam' : '🔒 Terhad'}
+                      </span>
                     </td>
                     <td>
                       {p.template_url
@@ -103,15 +113,9 @@ export default function AdminDashboard() {
                         : <span className="badge badge-gray">Tiada</span>}
                     </td>
                     <td>
-                      <span className={`badge ${p.is_active ? 'badge-blue' : 'badge-gray'}`}>
-                        {p.is_active ? 'Aktif' : 'Tutup'}
-                      </span>
-                    </td>
-                    <td>
                       <div style={{ display:'flex', gap:6 }}>
                         <Link to={`/admin/program/${p.id}`} className="btn btn-sm">Edit</Link>
-                        <button className="btn btn-sm btn-danger"
-                          onClick={() => handleDelete(p.id, p.name)}>Padam</button>
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDelete(p.id, p.name)}>Padam</button>
                       </div>
                     </td>
                   </tr>
@@ -121,31 +125,62 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* Pautan untuk dikongsi */}
+        {/* Pautan program */}
         <div className="card">
-          <div className="card-title">Pautan Portal Pengguna</div>
-          <p style={{ fontSize:13, color:'var(--gray-600)', marginBottom:10 }}>
-            Kongsi pautan ini kepada peserta. Mereka boleh jana sijil sendiri.
+          <div className="card-title">Pautan Untuk Dikongsi</div>
+          <p style={{ fontSize:13, color:'var(--gray-600)', marginBottom:14 }}>
+            Kongsi pautan ini kepada peserta mengikut jenis program.
           </p>
-          {programs.filter(p=>p.is_active&&p.template_url).map(p => (
-            <div key={p.id} className="row-item">
-              <span style={{ flex:1, fontSize:13, fontWeight:500 }}>{p.name}</span>
-              <code style={{ fontSize:12, background:'var(--gray-100)', padding:'3px 8px', borderRadius:4, color:'var(--gray-600)' }}>
-                {window.location.origin}/jana/{p.id}
-              </code>
-              <button className="btn btn-sm" onClick={() => {
-                navigator.clipboard.writeText(`${window.location.origin}/jana/${p.id}`)
-                alert('Pautan disalin!')
-              }}>Salin</button>
-            </div>
-          ))}
-          {programs.filter(p=>p.is_active&&p.template_url).length === 0 && (
-            <p style={{ fontSize:13, color:'var(--gray-400)' }}>Tiada program aktif dengan template lagi.</p>
+
+          {programs.filter(p => p.template_url && p.is_active).length === 0 && (
+            <p style={{ fontSize:13, color:'var(--gray-400)' }}>
+              Tiada program aktif dengan template lagi.
+            </p>
           )}
+
+          {programs.filter(p => p.template_url && p.is_active).map(p => {
+            const link = `${base}/jana/${p.id}`
+            const keyC = `copy-${p.id}`
+            return (
+              <div key={p.id} style={{ marginBottom:16, padding:'14px 16px',
+                border:'1px solid var(--gray-200)', borderRadius:10, background:'var(--gray-50)' }}>
+
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                  <span style={{ fontWeight:600, fontSize:14, flex:1 }}>{p.name}</span>
+                  <span className={`badge ${p.access_mode==='public'?'badge-blue':'badge-gray'}`}>
+                    {p.access_mode === 'public' ? '🌐 Awam' : '🔒 Terhad'}
+                  </span>
+                </div>
+
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <code style={{ flex:1, fontSize:12, background:'#fff', padding:'6px 10px',
+                    borderRadius:6, border:'1px solid var(--gray-200)', color:'var(--gray-600)',
+                    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {link}
+                  </code>
+                  <button className="btn btn-sm btn-primary"
+                    onClick={() => copyLink(link, keyC)}>
+                    {copied === keyC ? '✓ Disalin' : 'Salin'}
+                  </button>
+                </div>
+
+                {p.access_mode === 'public' && (
+                  <p style={{ fontSize:11, color:'var(--gray-400)', marginTop:6 }}>
+                    Sesiapa boleh jana sijil. Nama dan IC peserta akan disimpan secara automatik.
+                  </p>
+                )}
+                {p.access_mode === 'private' && (
+                  <p style={{ fontSize:11, color:'var(--gray-400)', marginTop:6 }}>
+                    Hanya peserta dalam senarai (tab Guru) sahaja yang boleh jana sijil.
+                  </p>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 
-      {/* Modal: Tambah Program */}
+      {/* Modal: Program baharu */}
       {showNew && (
         <div className="overlay" onClick={e => e.target===e.currentTarget && setShowNew(false)}>
           <div className="modal">
@@ -153,18 +188,38 @@ export default function AdminDashboard() {
             <form onSubmit={handleCreate}>
               <div className="field">
                 <label>Nama Program</label>
-                <input type="text" value={form.name} required
+                <input type="text" value={form.name} required autoFocus
                   onChange={e => setForm({...form, name:e.target.value})}
-                  placeholder="cth: Hari Anugerah Cemerlang 2026" autoFocus />
+                  placeholder="cth: Bengkel STEM 2026" />
               </div>
               <div className="field">
-                <label>Tarikh Program</label>
+                <label>Tarikh</label>
                 <input type="date" value={form.date} required
                   onChange={e => setForm({...form, date:e.target.value})} />
               </div>
+              <div className="field">
+                <label>Jenis Akses</label>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:6 }}>
+                  {[
+                    ['private','🔒 Terhad','Hanya peserta berdaftar'],
+                    ['public', '🌐 Awam',  'Sesiapa boleh jana'],
+                  ].map(([val, label, desc]) => (
+                    <div key={val}
+                      onClick={() => setForm({...form, access_mode:val})}
+                      style={{
+                        border: `2px solid ${form.access_mode===val ? 'var(--blue)' : 'var(--gray-200)'}`,
+                        borderRadius:10, padding:'12px 14px', cursor:'pointer',
+                        background: form.access_mode===val ? 'var(--blue-lt)' : '#fff',
+                      }}>
+                      <div style={{ fontWeight:600, fontSize:14, marginBottom:4 }}>{label}</div>
+                      <div style={{ fontSize:12, color:'var(--gray-400)' }}>{desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <div style={{ display:'flex', gap:8, marginTop:4 }}>
                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? <><span className="spinner" /> Mencipta…</> : 'Cipta & Edit'}
+                  {saving ? 'Mencipta…' : 'Cipta & Edit'}
                 </button>
                 <button type="button" className="btn" onClick={() => setShowNew(false)}>Batal</button>
               </div>
