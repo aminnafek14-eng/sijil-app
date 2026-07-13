@@ -3,49 +3,59 @@ import { useParams, Link } from 'react-router-dom'
 import {
   supabase, updateProgram, uploadTemplate,
   getRecipients, addRecipient, deleteRecipient, bulkAddRecipients,
+  getTeachers, addTeacher, deleteTeacher, updateTeacher,
 } from '../lib/supabase'
 import { drawPreview } from '../lib/certCanvas'
 
-const FONTS   = ['Georgia', 'Times New Roman', 'Arial', 'Verdana', 'Trebuchet MS', 'Palatino']
-const COLORS  = ['#1e3a5f','#7c2d12','#14532d','#1e1b4b','#000000','#ffffff','#d97706','#be185d']
+const FONTS  = ['Georgia','Times New Roman','Arial','Verdana','Trebuchet MS','Palatino']
+const COLORS = ['#1e3a5f','#7c2d12','#14532d','#1e1b4b','#000000','#ffffff','#d97706','#be185d']
 
 export default function ProgramEditor() {
   const { id } = useParams()
   const canvasRef = useRef(null)
 
-  const [program, setProgram] = useState(null)
-  const [cfg, setCfg]         = useState({
-    name_x: 50, name_y: 55, name_size: 36,
-    name_color: '#1e3a5f', name_font: 'Georgia',
+  const [program, setProgram]   = useState(null)
+  const [cfg, setCfg]           = useState({
+    name_x:50, name_y:55, name_size:36,
+    name_color:'#1e3a5f', name_font:'Georgia',
+    show_ic:true, ic_size:20, ic_color:'#1e3a5f',
   })
   const [previewName, setPreviewName] = useState('AHMAD FARIS BIN RAMLI')
-  const [drag, setDrag]     = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved]   = useState(false)
-  const [tab, setTab]       = useState('template') // 'template' | 'recipients'
+  const [uploading, setUploading]     = useState(false)
+  const [saving, setSaving]           = useState(false)
+  const [saved, setSaved]             = useState(false)
+  const [drag, setDrag]               = useState(false)
+  const [tab, setTab]                 = useState('template')
 
+  // Recipients (untuk program ini)
   const [recipients, setRecipients] = useState([])
-  const [newName, setNewName] = useState('')
-  const [newIc, setNewIc]     = useState('')
-  const [addingRec, setAddingRec] = useState(false)
-  const [csvError, setCsvError]   = useState('')
 
-  useEffect(() => {
-    loadProgram()
-    loadRecipients()
-  }, [id])
+  // Bank guru
+  const [teachers, setTeachers]     = useState([])
+  const [ticked, setTicked]         = useState(new Set())
+  const [search, setSearch]         = useState('')
+  const [addingBulk, setAddingBulk] = useState(false)
+
+  // Form tambah guru baru ke bank
+  const [showAddTeacher, setShowAddTeacher] = useState(false)
+  const [tForm, setTForm] = useState({ full_name:'', ic_number:'', email:'', school:'' })
+  const [savingTeacher, setSavingTeacher]   = useState(false)
+
+  useEffect(() => { loadProgram(); loadRecipients(); loadTeachers() }, [id])
 
   async function loadProgram() {
     const { data } = await supabase.from('programs').select('*').eq('id', id).single()
     if (data) {
       setProgram(data)
       setCfg({
-        name_x:     data.name_x    ?? 50,
-        name_y:     data.name_y    ?? 55,
-        name_size:  data.name_size ?? 36,
+        name_x:     data.name_x     ?? 50,
+        name_y:     data.name_y     ?? 55,
+        name_size:  data.name_size  ?? 36,
         name_color: data.name_color ?? '#1e3a5f',
         name_font:  data.name_font  ?? 'Georgia',
+        show_ic:    data.show_ic    ?? true,
+        ic_size:    data.ic_size    ?? 20,
+        ic_color:   data.ic_color   ?? '#1e3a5f',
       })
     }
   }
@@ -55,43 +65,43 @@ export default function ProgramEditor() {
     setRecipients(data || [])
   }
 
-  // Lukis pratonton bila cfg atau template berubah
+  async function loadTeachers() {
+    const { data } = await getTeachers()
+    setTeachers(data || [])
+  }
+
+  // Redraw canvas bila cfg berubah
   const redraw = useCallback(() => {
-    if (!canvasRef.current) return
+    if (!canvasRef.current || !program) return
     drawPreview(canvasRef.current, {
-      templateUrl: program?.template_url ?? null,
+      templateUrl: program.template_url ?? null,
       name: previewName,
+      ic: '900215-01-1234',
       ...cfg,
     })
   }, [program, cfg, previewName])
 
   useEffect(() => { redraw() }, [redraw])
 
-  // ── Upload template ──────────────────────────────
+  // Upload template
   async function handleFileUpload(file) {
-    if (!file || !file.type.startsWith('image/')) {
-      alert('Sila pilih fail imej (PNG atau JPG).')
-      return
-    }
+    if (!file || !file.type.startsWith('image/')) { alert('Sila pilih PNG atau JPG.'); return }
     setUploading(true)
     try {
       const url = await uploadTemplate(file, id)
       const { data } = await updateProgram(id, { template_url: url })
       setProgram(data)
-    } catch (e) {
-      alert('Gagal muat naik: ' + e.message)
-    }
+    } catch(e) { alert('Gagal muat naik: ' + e.message) }
     setUploading(false)
   }
 
-  function handleDropzone(e) {
-    e.preventDefault()
-    setDrag(false)
+  function handleDrop(e) {
+    e.preventDefault(); setDrag(false)
     const file = e.dataTransfer?.files[0] ?? e.target.files[0]
     if (file) handleFileUpload(file)
   }
 
-  // ── Klik pada canvas untuk letak kedudukan nama ──
+  // Klik canvas untuk letak kedudukan nama
   function handleCanvasClick(e) {
     const rect = canvasRef.current.getBoundingClientRect()
     const x = ((e.clientX - rect.left) / rect.width)  * 100
@@ -99,83 +109,111 @@ export default function ProgramEditor() {
     setCfg(c => ({ ...c, name_x: Math.round(x), name_y: Math.round(y) }))
   }
 
-  // ── Simpan tetapan program ───────────────────────
+  // Simpan tetapan
   async function handleSave() {
     setSaving(true)
     await updateProgram(id, cfg)
-    setSaving(false)
-    setSaved(true)
+    setSaving(false); setSaved(true)
     setTimeout(() => setSaved(false), 2500)
   }
 
-  // ── Tambah peserta seorang ───────────────────────
-  async function handleAddRecipient(e) {
-    e.preventDefault()
-    if (!newName || !newIc) return
-    setAddingRec(true)
-    const { error } = await addRecipient({ program_id: id, full_name: newName, ic_number: newIc })
-    if (error) alert('Ralat: ' + (error.message.includes('unique') ? 'No. IC sudah wujud dalam program ini.' : error.message))
-    else { setNewName(''); setNewIc(''); loadRecipients() }
-    setAddingRec(false)
-  }
-
-  // ── Muat naik CSV peserta ────────────────────────
-  async function handleCsv(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    setCsvError('')
-    const text = await file.text()
-    const lines = text.trim().split('\n').slice(1) // skip header
-    const rows = []
-    const errors = []
-
-    lines.forEach((line, i) => {
-      const [name, ic] = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''))
-      if (!name || !ic) { errors.push(`Baris ${i+2}: format salah`); return }
-      rows.push({ program_id: id, full_name: name, ic_number: ic })
+  // ── TICK guru ────────────────────────────────────────────────
+  function toggleTick(teacherId) {
+    setTicked(prev => {
+      const next = new Set(prev)
+      next.has(teacherId) ? next.delete(teacherId) : next.add(teacherId)
+      return next
     })
-
-    if (errors.length) { setCsvError(errors.slice(0,3).join(', ')); return }
-
-    const { error } = await bulkAddRecipients(rows)
-    if (error) setCsvError('Ralat simpan: ' + error.message)
-    else { loadRecipients(); alert(`${rows.length} peserta berjaya ditambah.`) }
-    e.target.value = ''
   }
+
+  function tickAll(filtered) {
+    setTicked(prev => {
+      const next = new Set(prev)
+      filtered.forEach(t => next.add(t.id))
+      return next
+    })
+  }
+
+  function untickAll() { setTicked(new Set()) }
+
+  // Semak guru mana dah ada dalam program ini
+  const recipientIcs = new Set(recipients.map(r => r.ic_number))
+
+  // Tambah guru yang di-tick ke program
+  async function handleAddTicked() {
+    if (ticked.size === 0) { alert('Pilih sekurang-kurangnya seorang guru.'); return }
+    setAddingBulk(true)
+
+    const toAdd = teachers
+      .filter(t => ticked.has(t.id) && !recipientIcs.has(t.ic_number))
+      .map(t => ({ program_id: id, full_name: t.full_name, ic_number: t.ic_number }))
+
+    if (toAdd.length === 0) {
+      alert('Semua guru yang dipilih sudah ada dalam program ini.')
+      setAddingBulk(false); return
+    }
+
+    const { error } = await bulkAddRecipients(toAdd)
+    if (error) alert('Ralat: ' + error.message)
+    else {
+      await loadRecipients()
+      setTicked(new Set())
+      alert(`${toAdd.length} guru berjaya ditambah ke program ini.`)
+    }
+    setAddingBulk(false)
+  }
+
+  // Tambah guru baharu ke bank
+  async function handleAddTeacher(e) {
+    e.preventDefault()
+    setSavingTeacher(true)
+    const { error } = await addTeacher(tForm)
+    if (error) alert(error.message.includes('unique') ? 'No. IC sudah ada dalam bank guru.' : error.message)
+    else { setTForm({ full_name:'', ic_number:'', email:'', school:'' }); setShowAddTeacher(false); loadTeachers() }
+    setSavingTeacher(false)
+  }
+
+  const filteredTeachers = teachers.filter(t =>
+    t.full_name.toLowerCase().includes(search.toLowerCase()) ||
+    t.ic_number.includes(search) ||
+    (t.school || '').toLowerCase().includes(search.toLowerCase())
+  )
 
   if (!program) return <div style={{ padding:40, textAlign:'center', color:'var(--gray-400)' }}>Memuatkan…</div>
 
   return (
     <>
       <nav className="nav">
-        <Link to="/admin/dashboard" className="btn btn-sm" style={{ color:'rgba(255,255,255,.8)', borderColor:'rgba(255,255,255,.3)', background:'transparent' }}>
+        <Link to="/admin/dashboard" className="btn btn-sm"
+          style={{ color:'rgba(255,255,255,.8)', borderColor:'rgba(255,255,255,.3)', background:'transparent' }}>
           ← Kembali
         </Link>
         <span className="nav-title" style={{ fontSize:14 }}>{program.name}</span>
         <button className="btn btn-sm" style={{ background:'#fff', color:'var(--blue)' }}
           onClick={handleSave} disabled={saving}>
-          {saving ? <><span className="spinner" style={{borderTopColor:'var(--blue)'}} /> Menyimpan…</>
+          {saving ? <><span className="spinner" style={{ borderTopColor:'var(--blue)' }} /> Menyimpan…</>
             : saved ? '✓ Disimpan' : 'Simpan Tetapan'}
         </button>
       </nav>
 
       <div className="page">
         {/* Tab */}
-        <div style={{ display:'flex', gap:4, marginBottom:20, borderBottom:'1px solid var(--gray-200)', paddingBottom:0 }}>
-          {[['template','🖼 Template & Kedudukan'],['recipients','👥 Peserta']].map(([k,l]) => (
+        <div style={{ display:'flex', gap:4, marginBottom:20, borderBottom:'1px solid var(--gray-200)' }}>
+          {[['template','🖼 Template'],['teachers','👥 Guru'],['recipients','📋 Peserta Program']].map(([k,l]) => (
             <button key={k} onClick={() => setTab(k)}
-              style={{ border:'none', background:'none', padding:'8px 16px', fontWeight:tab===k?600:400,
-                color:tab===k?'var(--blue)':'var(--gray-600)',
-                borderBottom:tab===k?'2px solid var(--blue)':'2px solid transparent',
+              style={{ border:'none', background:'none', padding:'8px 16px',
+                fontWeight: tab===k ? 600 : 400,
+                color: tab===k ? 'var(--blue)' : 'var(--gray-600)',
+                borderBottom: tab===k ? '2px solid var(--blue)' : '2px solid transparent',
                 borderRadius:0, marginBottom:'-1px', fontSize:14 }}>
               {l}
             </button>
           ))}
         </div>
 
+        {/* ── TAB: TEMPLATE ── */}
         {tab === 'template' && (
           <div className="grid2" style={{ alignItems:'start' }}>
-            {/* Kiri: Pratonton canvas */}
             <div>
               <div className="card-title">Pratonton Sijil</div>
               <p style={{ fontSize:12, color:'var(--gray-400)', marginBottom:8 }}>
@@ -189,187 +227,282 @@ export default function ProgramEditor() {
               <div className="field" style={{ marginTop:12 }}>
                 <label>Nama pratonton</label>
                 <input type="text" value={previewName}
-                  onChange={e => setPreviewName(e.target.value)}
-                  placeholder="Nama untuk pratonton..." />
+                  onChange={e => setPreviewName(e.target.value)} />
               </div>
             </div>
 
-            {/* Kanan: Kawalan */}
             <div>
-              {/* Upload template */}
+              {/* Upload */}
               <div className="card">
                 <div className="card-title">Template Sijil (PNG / JPG)</div>
-                <label
-                  className={`upload-zone ${drag ? 'drag' : ''}`}
-                  onDragOver={e => { e.preventDefault(); setDrag(true) }}
-                  onDragLeave={() => setDrag(false)}
-                  onDrop={handleDropzone}>
-                  <input type="file" accept="image/png,image/jpeg" onChange={handleDropzone} />
-                  {uploading ? (
-                    <><span className="spinner" style={{ borderTopColor:'var(--blue)', width:24, height:24 }} /><br />Memuat naik…</>
-                  ) : program.template_url ? (
-                    <>
-                      <div style={{ fontSize:24, marginBottom:4 }}>✓</div>
-                      <strong style={{ color:'var(--blue)', fontSize:13 }}>Template sudah ada</strong>
-                      <div style={{ fontSize:12, marginTop:4 }}>Klik atau seret untuk tukar</div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ fontSize:28, marginBottom:4 }}>📁</div>
-                      <strong style={{ fontSize:13 }}>Seret atau klik untuk muat naik</strong>
-                      <div style={{ fontSize:12, marginTop:4 }}>PNG atau JPG — saiz maks 10 MB</div>
-                    </>
-                  )}
+                <label className={`upload-zone ${drag?'drag':''}`}
+                  onDragOver={e=>{e.preventDefault();setDrag(true)}}
+                  onDragLeave={()=>setDrag(false)}
+                  onDrop={handleDrop}>
+                  <input type="file" accept="image/png,image/jpeg" onChange={handleDrop} />
+                  {uploading ? <><span className="spinner" style={{borderTopColor:'var(--blue)',width:24,height:24}}/><br/>Memuat naik…</>
+                    : program.template_url
+                      ? <><div style={{fontSize:24}}>✓</div><strong style={{color:'var(--blue)',fontSize:13}}>Template sudah ada</strong><div style={{fontSize:12,marginTop:4}}>Klik atau seret untuk tukar</div></>
+                      : <><div style={{fontSize:28}}>📁</div><strong style={{fontSize:13}}>Seret atau klik untuk muat naik</strong><div style={{fontSize:12,marginTop:4}}>PNG atau JPG</div></>}
                 </label>
               </div>
 
-              {/* Kedudukan & gaya */}
+              {/* Kedudukan nama */}
               <div className="card">
                 <div className="card-title">Kedudukan & Gaya Nama</div>
-
                 <div className="field">
                   <label>Kedudukan Mendatar (X): {cfg.name_x}%</label>
                   <div className="slider-group">
-                    <span style={{ fontSize:12, color:'var(--gray-400)' }}>Kiri</span>
+                    <span style={{fontSize:12,color:'var(--gray-400)'}}>Kiri</span>
                     <input type="range" min="5" max="95" value={cfg.name_x}
-                      onChange={e => setCfg(c=>({...c,name_x:+e.target.value}))} />
-                    <span style={{ fontSize:12, color:'var(--gray-400)' }}>Kanan</span>
+                      onChange={e=>setCfg(c=>({...c,name_x:+e.target.value}))} />
+                    <span style={{fontSize:12,color:'var(--gray-400)'}}>Kanan</span>
                   </div>
                 </div>
-
                 <div className="field">
                   <label>Kedudukan Menegak (Y): {cfg.name_y}%</label>
                   <div className="slider-group">
-                    <span style={{ fontSize:12, color:'var(--gray-400)' }}>Atas</span>
+                    <span style={{fontSize:12,color:'var(--gray-400)'}}>Atas</span>
                     <input type="range" min="5" max="95" value={cfg.name_y}
-                      onChange={e => setCfg(c=>({...c,name_y:+e.target.value}))} />
-                    <span style={{ fontSize:12, color:'var(--gray-400)' }}>Bawah</span>
+                      onChange={e=>setCfg(c=>({...c,name_y:+e.target.value}))} />
+                    <span style={{fontSize:12,color:'var(--gray-400)'}}>Bawah</span>
                   </div>
                 </div>
-
                 <div className="field">
-                  <label>Saiz Teks: {cfg.name_size}px</label>
-                  <div className="slider-group">
-                    <input type="range" min="12" max="80" value={cfg.name_size}
-                      onChange={e => setCfg(c=>({...c,name_size:+e.target.value}))} />
-                    <span className="slider-val">{cfg.name_size}</span>
-                  </div>
+                  <label>Saiz Nama: {cfg.name_size}px</label>
+                  <input type="range" min="12" max="80" value={cfg.name_size}
+                    onChange={e=>setCfg(c=>({...c,name_size:+e.target.value}))} />
                 </div>
-
                 <div className="field">
                   <label>Fon</label>
-                  <select value={cfg.name_font}
-                    onChange={e => setCfg(c=>({...c,name_font:e.target.value}))}>
-                    {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
+                  <select value={cfg.name_font} onChange={e=>setCfg(c=>({...c,name_font:e.target.value}))}>
+                    {FONTS.map(f=><option key={f} value={f}>{f}</option>)}
                   </select>
                 </div>
-
                 <div className="field">
-                  <label>Warna Teks</label>
+                  <label>Warna Nama</label>
                   <div className="color-swatches">
-                    {COLORS.map(col => (
+                    {COLORS.map(col=>(
                       <div key={col} className={`swatch ${cfg.name_color===col?'active':''}`}
-                        style={{ background:col, border:col==='#ffffff'?'2px solid var(--gray-300)':undefined }}
-                        onClick={() => setCfg(c=>({...c,name_color:col}))} />
+                        style={{background:col,border:col==='#ffffff'?'2px solid var(--gray-300)':undefined}}
+                        onClick={()=>setCfg(c=>({...c,name_color:col}))} />
                     ))}
                     <input type="color" value={cfg.name_color}
-                      onChange={e => setCfg(c=>({...c,name_color:e.target.value}))}
-                      style={{ width:28, height:28, padding:0, border:'none', borderRadius:'50%', cursor:'pointer' }} />
+                      onChange={e=>setCfg(c=>({...c,name_color:e.target.value}))}
+                      style={{width:28,height:28,padding:0,border:'none',borderRadius:'50%',cursor:'pointer'}} />
                   </div>
                 </div>
+              </div>
 
-                <div className="alert alert-info" style={{ fontSize:12 }}>
-                  💡 Tip: Klik terus pada pratonton sijil untuk letak kedudukan nama secara tepat.
+              {/* Tetapan IC */}
+              <div className="card">
+                <div className="card-title">No. IC di Sijil</div>
+                <div className="field">
+                  <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
+                    <input type="checkbox" checked={cfg.show_ic}
+                      onChange={e=>setCfg(c=>({...c,show_ic:e.target.checked}))}
+                      style={{width:16,height:16}} />
+                    Paparkan No. IC di bawah nama
+                  </label>
+                </div>
+                {cfg.show_ic && <>
+                  <div className="field">
+                    <label>Saiz IC: {cfg.ic_size}px</label>
+                    <input type="range" min="8" max="40" value={cfg.ic_size}
+                      onChange={e=>setCfg(c=>({...c,ic_size:+e.target.value}))} />
+                  </div>
+                  <div className="field">
+                    <label>Warna IC</label>
+                    <div className="color-swatches">
+                      {COLORS.map(col=>(
+                        <div key={col} className={`swatch ${cfg.ic_color===col?'active':''}`}
+                          style={{background:col,border:col==='#ffffff'?'2px solid var(--gray-300)':undefined}}
+                          onClick={()=>setCfg(c=>({...c,ic_color:col}))} />
+                      ))}
+                      <input type="color" value={cfg.ic_color}
+                        onChange={e=>setCfg(c=>({...c,ic_color:e.target.value}))}
+                        style={{width:28,height:28,padding:0,border:'none',borderRadius:'50%',cursor:'pointer'}} />
+                    </div>
+                  </div>
+                </>}
+                <div className="alert alert-info" style={{fontSize:12}}>
+                  💡 IC akan muncul automatik di bawah nama dengan jarak yang sesuai.
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {tab === 'recipients' && (
+        {/* ── TAB: GURU (bank) ── */}
+        {tab === 'teachers' && (
           <div>
+            {/* Header + carian */}
             <div className="card">
-              <div className="card-title">Tambah Peserta Seorang</div>
-              <form onSubmit={handleAddRecipient}>
-                <div className="grid2">
-                  <div className="field" style={{ marginBottom:0 }}>
-                    <label>Nama Penuh</label>
-                    <input type="text" value={newName} required
-                      onChange={e => setNewName(e.target.value)}
-                      placeholder="Ahmad Faris bin Ramli" />
-                  </div>
-                  <div className="field" style={{ marginBottom:0 }}>
-                    <label>No. Kad Pengenalan</label>
-                    <input type="text" value={newIc} required
-                      onChange={e => setNewIc(e.target.value)}
-                      placeholder="900215-01-1234" />
-                  </div>
-                </div>
-                <button type="submit" className="btn btn-primary" style={{ marginTop:10 }} disabled={addingRec}>
-                  {addingRec ? 'Menambah…' : '+ Tambah Peserta'}
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                <span className="card-title" style={{margin:0,flex:1}}>Bank Data Guru</span>
+                <span className="badge badge-blue">{teachers.length} guru</span>
+                <button className="btn btn-primary btn-sm" onClick={()=>setShowAddTeacher(true)}>
+                  + Tambah Guru
                 </button>
-              </form>
-            </div>
-
-            <div className="card">
-              <div className="card-title">Muat Naik CSV (Ramai Sekaligus)</div>
-              <p style={{ fontSize:13, color:'var(--gray-600)', marginBottom:10 }}>
-                Format CSV: <code style={{ background:'var(--gray-100)', padding:'2px 6px', borderRadius:4 }}>nama,no_ic</code>
-                &nbsp;(baris pertama = tajuk)
-              </p>
-              <label className="btn">
-                📂 Pilih Fail CSV
-                <input type="file" accept=".csv" onChange={handleCsv} style={{ display:'none' }} />
-              </label>
-              {csvError && <div className="alert alert-err" style={{ marginTop:10 }}>{csvError}</div>}
-              <a href="data:text/csv;charset=utf-8,nama,no_ic%0AAhmad%20Faris,900215-01-1234"
-                download="contoh-peserta.csv"
-                style={{ fontSize:12, color:'var(--gray-400)', display:'block', marginTop:8 }}>
-                Muat turun contoh CSV
-              </a>
-            </div>
-
-            <div className="card">
-              <div style={{ display:'flex', alignItems:'center', marginBottom:14 }}>
-                <span className="card-title" style={{ margin:0, flex:1 }}>Senarai Peserta</span>
-                <span className="badge badge-blue">{recipients.length} orang</span>
               </div>
-              {recipients.length === 0 ? (
-                <p style={{ fontSize:13, color:'var(--gray-400)', textAlign:'center', padding:'20px 0' }}>
-                  Tiada peserta lagi. Tambah di atas.
-                </p>
-              ) : (
-                <table className="tbl">
-                  <thead>
-                    <tr><th>Nama Penuh</th><th>No. IC</th><th>Sijil Jana</th><th></th></tr>
-                  </thead>
-                  <tbody>
-                    {recipients.map(r => (
-                      <tr key={r.id}>
-                        <td>{r.full_name}</td>
-                        <td style={{ fontFamily:'monospace', fontSize:13 }}>{r.ic_number}</td>
-                        <td>
-                          {r.cert_generated
-                            ? <span className="badge badge-green">✓ {new Date(r.generated_at).toLocaleDateString('ms-MY')}</span>
-                            : <span className="badge badge-gray">Belum</span>}
-                        </td>
-                        <td>
-                          <button className="btn btn-sm btn-danger"
-                            onClick={async () => {
-                              if (!confirm(`Padam ${r.full_name}?`)) return
-                              await deleteRecipient(r.id)
-                              loadRecipients()
-                            }}>Padam</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+
+              <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
+                placeholder="Cari nama, IC, atau sekolah…"
+                style={{marginBottom:12}} />
+
+              {/* Butang tick semua / nyah-tick */}
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+                <button className="btn btn-sm" onClick={()=>tickAll(filteredTeachers)}>
+                  Pilih Semua ({filteredTeachers.length})
+                </button>
+                <button className="btn btn-sm" onClick={untickAll}>Nyah Pilih</button>
+                {ticked.size > 0 && (
+                  <span style={{fontSize:13,color:'var(--blue)',fontWeight:500}}>
+                    {ticked.size} dipilih
+                  </span>
+                )}
+              </div>
+
+              {/* Senarai guru dengan checkbox */}
+              <div style={{maxHeight:380,overflowY:'auto',border:'1px solid var(--gray-200)',borderRadius:8}}>
+                {filteredTeachers.length === 0 ? (
+                  <div style={{padding:24,textAlign:'center',color:'var(--gray-400)',fontSize:13}}>
+                    {search ? 'Tiada hasil carian.' : 'Tiada guru dalam bank. Tambah dulu!'}
+                  </div>
+                ) : filteredTeachers.map(t => {
+                  const alreadyIn = recipientIcs.has(t.ic_number)
+                  return (
+                    <div key={t.id} className="row-item" style={{padding:'10px 14px',
+                      background: ticked.has(t.id) ? 'var(--blue-lt)' : 'transparent',
+                      cursor: alreadyIn ? 'default' : 'pointer',
+                      opacity: alreadyIn ? 0.5 : 1}}
+                      onClick={()=>!alreadyIn && toggleTick(t.id)}>
+                      <input type="checkbox" checked={ticked.has(t.id)}
+                        disabled={alreadyIn}
+                        onChange={()=>!alreadyIn && toggleTick(t.id)}
+                        style={{width:16,height:16,cursor:'pointer'}}
+                        onClick={e=>e.stopPropagation()} />
+                      <div style={{flex:1,marginLeft:10}}>
+                        <div style={{fontSize:14,fontWeight:500}}>{t.full_name}</div>
+                        <div style={{fontSize:12,color:'var(--gray-400)'}}>
+                          {t.ic_number}
+                          {t.school && <> · {t.school}</>}
+                        </div>
+                      </div>
+                      {alreadyIn && <span className="badge badge-green">Dah masuk</span>}
+                      <button className="btn btn-sm btn-danger"
+                        style={{marginLeft:6}}
+                        onClick={async e=>{
+                          e.stopPropagation()
+                          if(!confirm(`Padam ${t.full_name} dari bank guru?`)) return
+                          await deleteTeacher(t.id); loadTeachers()
+                        }}>✕</button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Butang tambah ke program */}
+              <div style={{marginTop:14,display:'flex',alignItems:'center',gap:10}}>
+                <button className="btn btn-accent" onClick={handleAddTicked} disabled={addingBulk||ticked.size===0}>
+                  {addingBulk
+                    ? <><span className="spinner"/>Menambah…</>
+                    : `✓ Tambah ${ticked.size > 0 ? ticked.size : ''} Guru ke Program Ini`}
+                </button>
+                <span style={{fontSize:12,color:'var(--gray-400)'}}>
+                  Guru bertanda "Dah masuk" sudah ada dalam program ini.
+                </span>
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* ── TAB: PESERTA PROGRAM ── */}
+        {tab === 'recipients' && (
+          <div className="card">
+            <div style={{display:'flex',alignItems:'center',marginBottom:14}}>
+              <span className="card-title" style={{margin:0,flex:1}}>Peserta Program Ini</span>
+              <span className="badge badge-blue">{recipients.length} orang</span>
+            </div>
+            <div className="alert alert-info" style={{fontSize:12,marginBottom:12}}>
+              💡 Untuk tambah peserta, pergi ke tab <strong>Guru</strong> → tick → Tambah ke Program.
+            </div>
+            {recipients.length === 0 ? (
+              <p style={{fontSize:13,color:'var(--gray-400)',textAlign:'center',padding:'20px 0'}}>
+                Belum ada peserta. Pergi ke tab Guru untuk tambah.
+              </p>
+            ) : (
+              <table className="tbl">
+                <thead>
+                  <tr><th>#</th><th>Nama Penuh</th><th>No. IC</th><th>Sijil Jana</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {recipients.map((r,i) => (
+                    <tr key={r.id}>
+                      <td style={{color:'var(--gray-400)',fontSize:12}}>{i+1}</td>
+                      <td style={{fontWeight:500}}>{r.full_name}</td>
+                      <td style={{fontFamily:'monospace',fontSize:13}}>{r.ic_number}</td>
+                      <td>
+                        {r.cert_generated
+                          ? <span className="badge badge-green">✓ {new Date(r.generated_at).toLocaleDateString('ms-MY')}</span>
+                          : <span className="badge badge-gray">Belum</span>}
+                      </td>
+                      <td>
+                        <button className="btn btn-sm btn-danger"
+                          onClick={async()=>{
+                            if(!confirm(`Buang ${r.full_name} dari program ini?`)) return
+                            await deleteRecipient(r.id); loadRecipients()
+                          }}>Buang</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>
+
+      {/* Modal: Tambah Guru ke Bank */}
+      {showAddTeacher && (
+        <div className="overlay" onClick={e=>e.target===e.currentTarget&&setShowAddTeacher(false)}>
+          <div className="modal">
+            <div className="modal-title">Tambah Guru ke Bank Data</div>
+            <form onSubmit={handleAddTeacher}>
+              <div className="field">
+                <label>Nama Penuh *</label>
+                <input type="text" value={tForm.full_name} required
+                  onChange={e=>setTForm({...tForm,full_name:e.target.value})}
+                  placeholder="Ahmad Faris bin Ramli" autoFocus />
+              </div>
+              <div className="field">
+                <label>No. Kad Pengenalan *</label>
+                <input type="text" value={tForm.ic_number} required
+                  onChange={e=>setTForm({...tForm,ic_number:e.target.value})}
+                  placeholder="900215-01-1234" />
+              </div>
+              <div className="field">
+                <label>Emel</label>
+                <input type="email" value={tForm.email}
+                  onChange={e=>setTForm({...tForm,email:e.target.value})}
+                  placeholder="guru@sekolah.edu.my" />
+              </div>
+              <div className="field">
+                <label>Sekolah</label>
+                <input type="text" value={tForm.school}
+                  onChange={e=>setTForm({...tForm,school:e.target.value})}
+                  placeholder="SK Taman Maju" />
+              </div>
+              <div style={{display:'flex',gap:8,marginTop:4}}>
+                <button type="submit" className="btn btn-primary" disabled={savingTeacher}>
+                  {savingTeacher ? 'Menyimpan…' : 'Simpan ke Bank'}
+                </button>
+                <button type="button" className="btn" onClick={()=>setShowAddTeacher(false)}>Batal</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   )
 }
