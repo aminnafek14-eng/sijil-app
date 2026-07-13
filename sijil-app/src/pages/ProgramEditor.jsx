@@ -5,7 +5,7 @@ import {
   getRecipients, addRecipient, deleteRecipient, bulkAddRecipients,
   getTeachers, addTeacher, deleteTeacher, updateTeacher,
 } from '../lib/supabase'
-import { drawPreview } from '../lib/certCanvas'
+// certCanvas digunakan untuk jana sijil sebenar (bukan pratonton)
 
 const FONTS  = ['Georgia','Times New Roman','Arial','Verdana','Trebuchet MS','Palatino']
 const COLORS = ['#1e3a5f','#7c2d12','#14532d','#1e1b4b','#000000','#ffffff','#d97706','#be185d']
@@ -69,17 +69,6 @@ export default function ProgramEditor() {
     const { data } = await getTeachers()
     setTeachers(data || [])
   }
-
-  // Redraw canvas setiap kali cfg, nama pratonton, atau template berubah
-  useEffect(() => {
-    if (!canvasRef.current || !program) return
-    drawPreview(canvasRef.current, {
-      templateUrl: program.template_url ?? null,
-      name: previewName,
-      ic: '900215-01-1234',
-      ...cfg,
-    })
-  }, [program, cfg, previewName])
 
   // Upload template
   async function handleFileUpload(file) {
@@ -217,11 +206,90 @@ export default function ProgramEditor() {
               <p style={{ fontSize:12, color:'var(--gray-400)', marginBottom:8 }}>
                 Klik pada sijil untuk letak kedudukan nama
               </p>
-              <div className="canvas-wrap" style={{ cursor:'crosshair' }}>
-                <canvas ref={canvasRef} width={800} height={566}
-                  onClick={handleCanvasClick}
-                  style={{ display:'block', width:'100%', height:'auto' }} />
+
+              {/* CSS overlay preview — update masa nyata, tiada CORS */}
+              <div
+                ref={canvasRef}
+                onClick={e => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  const x = Math.round(((e.clientX - rect.left) / rect.width)  * 100)
+                  const y = Math.round(((e.clientY - rect.top)  / rect.height) * 100)
+                  setCfg(c => ({ ...c, name_x: x, name_y: y }))
+                }}
+                style={{
+                  position: 'relative',
+                  width: '100%',
+                  paddingBottom: '70.75%', // nisbah A4 landscape
+                  background: '#e2e8f0',
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  cursor: 'crosshair',
+                  border: '1px solid var(--gray-200)',
+                }}>
+
+                {/* Gambar template */}
+                {program.template_url ? (
+                  <img src={program.template_url} alt="template"
+                    style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'contain' }} />
+                ) : (
+                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center',
+                    justifyContent:'center', color:'var(--gray-400)', fontSize:13, flexDirection:'column', gap:6 }}>
+                    <span style={{fontSize:28}}>📄</span>
+                    Muat naik template untuk pratonton
+                  </div>
+                )}
+
+                {/* Overlay nama — kedudukan ikut cfg */}
+                {program.template_url && (
+                  <div style={{
+                    position: 'absolute',
+                    left: `${cfg.name_x}%`,
+                    top:  `${cfg.name_y}%`,
+                    transform: 'translate(-50%, -50%)',
+                    textAlign: 'center',
+                    pointerEvents: 'none',
+                    lineHeight: 1.3,
+                  }}>
+                    <div style={{
+                      fontFamily: `"${cfg.name_font}", Georgia, serif`,
+                      fontSize: `${cfg.name_size * 0.55}px`,
+                      color: cfg.name_color,
+                      fontWeight: 'bold',
+                      textShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {previewName.toUpperCase()}
+                    </div>
+                    {cfg.show_ic && (
+                      <div style={{
+                        fontFamily: `"${cfg.name_font}", Georgia, serif`,
+                        fontSize: `${cfg.ic_size * 0.55}px`,
+                        color: cfg.ic_color,
+                        textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                        whiteSpace: 'nowrap',
+                        marginTop: 2,
+                      }}>
+                        No. IC: 900215-01-1234
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Crosshair marker */}
+                {program.template_url && (
+                  <div style={{
+                    position: 'absolute',
+                    left: `${cfg.name_x}%`,
+                    top:  `${cfg.name_y}%`,
+                    transform: 'translate(-50%, -50%)',
+                    width: 8, height: 8,
+                    borderRadius: '50%',
+                    background: 'rgba(201,100,66,0.6)',
+                    pointerEvents: 'none',
+                  }} />
+                )}
               </div>
+
               <div className="field" style={{ marginTop:12 }}>
                 <label>Nama pratonton</label>
                 <input type="text" value={previewName}
