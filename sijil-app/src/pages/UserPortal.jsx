@@ -78,15 +78,16 @@ export default function UserPortal() {
         templateUrl: progData.template_url,
         name:        rec.full_name,
         ic,
-        nameX:       progData.name_x     ?? 50,
-        nameY:       progData.name_y     ?? 55,
-        nameSize:    progData.name_size  ?? 36,
-        nameColor:   progData.name_color ?? '#1e3a5f',
-        nameFont:    progData.name_font  ?? 'Georgia',
-        showIc:      progData.show_ic    ?? true,
-        icSize:      progData.ic_size    ?? 20,
-        icColor:     progData.ic_color   ?? '#1e3a5f',
-        output:      'blob',
+        nameX:        progData.name_x     ?? 50,
+        nameY:        progData.name_y     ?? 55,
+        nameSize:     progData.name_size  ?? 36,
+        nameColor:    progData.name_color ?? '#1e3a5f',
+        nameFont:     progData.name_font  ?? 'Georgia',
+        showIc:       progData.show_ic    ?? true,
+        icSize:       progData.ic_size    ?? 20,
+        icColor:      progData.ic_color   ?? '#1e3a5f',
+        previewWidth: 600,  // sama dengan lebar pratonton admin
+        output:       'blob',
       })
       const url = URL.createObjectURL(blob)
       setCertBlob(blob)
