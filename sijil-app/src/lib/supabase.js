@@ -1,15 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Nilai ini diisi dalam Cloudflare Pages > Settings > Environment Variables
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-if (!SUPABASE_URL || !SUPABASE_ANON) {
-  console.error(
-    'Supabase URL atau Anon Key tiada.\n' +
-    'Salin .env.example ke .env dan isi nilai dari Supabase Dashboard.'
-  )
-}
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON)
 
@@ -18,8 +10,6 @@ export const signIn = (email, password) =>
   supabase.auth.signInWithPassword({ email, password })
 
 export const signOut = () => supabase.auth.signOut()
-
-export const getSession = () => supabase.auth.getSession()
 
 // ─── PROGRAMS ────────────────────────────────────────────────
 export const getPrograms = () =>
@@ -38,27 +28,30 @@ export const deleteProgram = (id) =>
 export const uploadTemplate = async (file, programId) => {
   const ext  = file.name.split('.').pop()
   const path = `${programId}/template.${ext}`
-
   const { error } = await supabase.storage
     .from('sijil-templates')
     .upload(path, file, { upsert: true })
-
   if (error) throw error
-
-  const { data } = supabase.storage
-    .from('sijil-templates')
-    .getPublicUrl(path)
-
+  const { data } = supabase.storage.from('sijil-templates').getPublicUrl(path)
   return data.publicUrl
 }
 
+// ─── TEACHERS (bank data guru) ────────────────────────────────
+export const getTeachers = () =>
+  supabase.from('teachers').select('*').order('full_name')
+
+export const addTeacher = (data) =>
+  supabase.from('teachers').insert(data).select().single()
+
+export const deleteTeacher = (id) =>
+  supabase.from('teachers').delete().eq('id', id)
+
+export const updateTeacher = (id, data) =>
+  supabase.from('teachers').update(data).eq('id', id)
+
 // ─── RECIPIENTS ──────────────────────────────────────────────
 export const getRecipients = (programId) =>
-  supabase
-    .from('recipients')
-    .select('*')
-    .eq('program_id', programId)
-    .order('full_name')
+  supabase.from('recipients').select('*').eq('program_id', programId).order('full_name')
 
 export const addRecipient = (data) =>
   supabase.from('recipients').insert(data).select().single()
@@ -66,19 +59,13 @@ export const addRecipient = (data) =>
 export const deleteRecipient = (id) =>
   supabase.from('recipients').delete().eq('id', id)
 
-// Muat naik ramai peserta sekaligus (dari CSV)
+// Tambah ramai guru sekaligus dari senarai tick
 export const bulkAddRecipients = (rows) =>
-  supabase.from('recipients').insert(rows)
+  supabase.from('recipients').insert(rows).select()
 
-// ─── SEMAK IC (public — tanpa auth) ──────────────────────────
+// ─── SEMAK IC (public) ────────────────────────────────────────
 export const checkRecipient = (programId, ic) =>
-  supabase.rpc('check_recipient', {
-    p_program_id: programId,
-    p_ic:         ic,
-  })
+  supabase.rpc('check_recipient', { p_program_id: programId, p_ic: ic })
 
 export const markGenerated = (programId, ic) =>
-  supabase.rpc('mark_cert_generated', {
-    p_program_id: programId,
-    p_ic:         ic,
-  })
+  supabase.rpc('mark_cert_generated', { p_program_id: programId, p_ic: ic })
